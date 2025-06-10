@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: JSON to GitHub Sync with Minified Posts (Local Save Version)
- * Description: Fetch all posts with selected fields from WP REST API, minify JSON, and save to local file on post save/update.
- * Version: 1.4
+ * Description: Fetch all posts with selected fields from WP REST API, minify JSON, and save to local file on post save/update or manual trigger.
+ * Version: 1.5
  * Author: Mamun Miah
  */
 
@@ -22,7 +22,28 @@ add_action('admin_init', function () {
     register_setting('json_to_github_settings', 'json_to_github_url');
 });
 
-// Settings page HTML (optional to keep)
+// Handle manual generate button POST
+add_action('admin_init', function () {
+    if (
+        isset($_POST['json_to_github_generate_now']) &&
+        check_admin_referer('json_to_github_generate_action', 'json_to_github_generate_nonce') &&
+        current_user_can('manage_options')
+    ) {
+        $result = json_to_github_generate_json_file();
+
+        if ($result === true) {
+            add_action('admin_notices', function () {
+                echo '<div class="notice notice-success is-dismissible"><p>posts.json generated successfully.</p></div>';
+            });
+        } else {
+            add_action('admin_notices', function () use ($result) {
+                echo '<div class="notice notice-error is-dismissible"><p>Failed to generate posts.json: ' . esc_html($result) . '</p></div>';
+            });
+        }
+    }
+});
+
+// Settings page HTML with manual generate button
 function json_to_github_settings_page() {
     ?>
     <div class="wrap">
@@ -37,6 +58,15 @@ function json_to_github_settings_page() {
                 </tr>
             </table>
             <?php submit_button(); ?>
+        </form>
+
+        <hr/>
+
+        <form method="post">
+            <?php
+            wp_nonce_field('json_to_github_generate_action', 'json_to_github_generate_nonce');
+            ?>
+            <input type="submit" name="json_to_github_generate_now" class="button button-primary" value="Generate posts.json Now" />
         </form>
     </div>
     <?php
@@ -132,22 +162,31 @@ function json_to_github_auto_upload($post_ID, $post, $update) {
     if ($post->post_type !== 'post') return;
     if (!in_array($post->post_status, ['publish', 'future'])) return;
 
+    json_to_github_generate_json_file();
+}
+
+// Function to generate and save posts.json, returns true or error string
+function json_to_github_generate_json_file() {
     $json_url = get_option('json_to_github_url');
 
     if (!$json_url) {
-        error_log('JSON to GitHub Sync: No JSON URL set in settings.');
-        return;
+        return 'JSON URL not set in settings.';
     }
 
-    // Fetch minified JSON of all posts
     $json_data = fetch_all_posts_minified($json_url);
+    if (!$json_data) {
+        return 'Failed to fetch or encode JSON data.';
+    }
 
-    // Save JSON file to WordPress root folder (wp-load.php directory)
     $upload_path = ABSPATH . 'posts.json';
 
-    if (file_put_contents($upload_path, $json_data) === false) {
-        error_log('Failed to write posts.json to root folder.');
+    $written = file_put_contents($upload_path, $json_data);
+
+    if ($written === false) {
+        return 'Failed to write posts.json to root folder.';
     }
+
+    return true;
 }
 
 add_action('save_post', 'json_to_github_auto_upload', 10, 3);
