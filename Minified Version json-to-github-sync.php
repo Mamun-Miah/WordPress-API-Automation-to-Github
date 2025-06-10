@@ -114,6 +114,7 @@ function fetch_all_posts_minified($base_url) {
 
             $minified_post = [
                 'id'            => $post['id'],
+                'slug'          => $post['slug'] ?? '',
                 'date'          => $post['date'],
                 'modified'      => $post['modified'],
                 'author'        => $post['_embedded']['author'][0]['name'] ?? '',
